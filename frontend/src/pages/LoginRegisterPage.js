@@ -114,10 +114,10 @@ const LoginRegisterPage = () => {
                     <div className="w-full bg-green-50 text-green-700 px-3 py-2 rounded border border-green-200 text-sm">{success}</div>
                   )}
                   <input
-                    type="email"
-                    name="login_email_custom"
-                    autoComplete="off"
-                    placeholder="Email"
+                    type="text"
+                    name="login_identifier"
+                    autoComplete="username"
+                    placeholder="Email or Username"
                     className="w-full px-4 py-2 border border-amber-200 rounded focus:outline-none focus:ring-2 focus:ring-amber-400 text-lg"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}

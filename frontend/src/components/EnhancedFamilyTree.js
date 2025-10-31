@@ -3,6 +3,9 @@ import * as d3 from 'd3';
 import './EnhancedFamilyTree.css';
 import { MemberDetailsModal } from './MemberDetailsModal';
 
+// Safe string key helper
+const toKey = (v) => (v === undefined || v === null ? '' : String(v));
+
 // Fetch children by serial numbers
 const fetchChildren = async (childrenSerNos) => {
   if (!childrenSerNos || childrenSerNos.length === 0) return [];
@@ -255,16 +258,25 @@ const EnhancedFamilyTree = () => {
     // Create a map of all members by serNo for quick lookup
     const memberMap = new Map();
     allMembers.forEach(member => {
-      memberMap.set(member.serNo.toString(), member);
+      memberMap.set(toKey(member.serNo), member);
     });
 
     // Create couple nodes (husband as primary, wife as spouse)
     const coupleMap = new Map();
     allMembers.forEach(member => {
       // Create a unique key for each couple
-      const coupleKey = member.spouseSerNo
-        ? `${Math.min(member.serNo, member.spouseSerNo)}-${Math.max(member.serNo, member.spouseSerNo)}`
-        : member.serNo.toString();
+      let coupleKey;
+      if (member.spouseSerNo !== undefined && member.spouseSerNo !== null && member.serNo !== undefined && member.serNo !== null) {
+        const a = Number(member.serNo);
+        const b = Number(member.spouseSerNo);
+        if (!Number.isNaN(a) && !Number.isNaN(b)) {
+          coupleKey = `${Math.min(a, b)}-${Math.max(a, b)}`;
+        } else {
+          coupleKey = `${toKey(member.serNo)}-${toKey(member.spouseSerNo)}`;
+        }
+      } else {
+        coupleKey = toKey(member.serNo);
+      }
 
       // Skip if this couple is already processed
       if (coupleMap.has(coupleKey)) return;
@@ -311,7 +323,7 @@ const EnhancedFamilyTree = () => {
       let children = [];
       if (couple.primary.childrenSerNos && couple.primary.childrenSerNos.length > 0) {
         children = couple.primary.childrenSerNos
-          .map(serNo => memberMap.get(serNo.toString()))
+          .map(serNo => memberMap.get(toKey(serNo)))
           .filter(Boolean);
       }
 
@@ -324,7 +336,7 @@ const EnhancedFamilyTree = () => {
               : `${child.serNo}-${child.spouseSerNo}`;
             return coupleMap.get(childCoupleKey);
           } else {
-            return coupleMap.get(child.serNo.toString());
+            return coupleMap.get(toKey(child.serNo));
           }
         }).filter(Boolean);
       } else {
@@ -362,13 +374,11 @@ const EnhancedFamilyTree = () => {
     // Look for serNo 1 first, then serNo 2 in ALL couples (not just natural roots)
     for (const targetSerNo of targetSerNos) {
       targetRoot = Array.from(coupleMap.values()).find(couple => {
-        const primaryMatch = couple.primary.serNo === targetSerNo || 
-                           couple.primary.serNo === targetSerNo.toString() ||
-                           parseInt(couple.primary.serNo) === targetSerNo;
+        const primaryMatch = String(couple.primary?.serNo ?? '') === String(targetSerNo) ||
+                           parseInt(couple.primary?.serNo) === targetSerNo;
         const spouseMatch = couple.spouse && (
-                           couple.spouse.serNo === targetSerNo || 
-                           couple.spouse.serNo === targetSerNo.toString() ||
-                           parseInt(couple.spouse.serNo) === targetSerNo);
+                           String(couple.spouse?.serNo ?? '') === String(targetSerNo) ||
+                           parseInt(couple.spouse?.serNo) === targetSerNo);
         return primaryMatch || spouseMatch;
       });
       
@@ -878,7 +888,7 @@ const EnhancedFamilyTree = () => {
       
       if (serNo) {
         // Find the member directly from allMembers array using serial number
-        const member = allMembers.find(m => m.serNo.toString() === serNo.toString());
+        const member = allMembers.find(m => String(m?.serNo ?? '') === String(serNo ?? ''));
         
         if (member) {
           console.log('Opening modal for member:', member);
@@ -913,22 +923,30 @@ const EnhancedFamilyTree = () => {
   const filteredMembers = searchTerm
     ? allMembers.filter(member => {
       const fullName = [member.firstName, member.middleName, member.lastName].filter(Boolean).join(' ').toLowerCase();
-      return fullName.includes(searchTerm.toLowerCase()) || member.serNo.toString().includes(searchTerm);
+      return fullName.includes(searchTerm.toLowerCase()) || String(member?.serNo ?? '').includes(searchTerm);
     })
     : [];
 
   const handleSearchSelect = (member) => {
-    const coupleKey = member.spouseSerNo
-      ? `${Math.min(member.serNo, member.spouseSerNo)}-${Math.max(member.serNo, member.spouseSerNo)}`
-      : member.serNo.toString();
+    const coupleKey = (member.spouseSerNo != null && member.serNo != null)
+      ? (() => {
+          const a = Number(member.serNo);
+          const b = Number(member.spouseSerNo);
+          return (!Number.isNaN(a) && !Number.isNaN(b)) ? `${Math.min(a, b)}-${Math.max(a, b)}` : `${toKey(member.serNo)}-${toKey(member.spouseSerNo)}`;
+        })()
+      : toKey(member.serNo);
     setHighlightedNodes(new Set([coupleKey]));
     // Only connect through fathers (paternal line)
     if (member.fatherSerNo) {
       const parentMember = allMembers.find(m => m.serNo === member.fatherSerNo);
       if (parentMember) {
-        const parentCoupleKey = parentMember.spouseSerNo
-          ? `${Math.min(parentMember.serNo, parentMember.spouseSerNo)}-${Math.max(parentMember.serNo, parentMember.spouseSerNo)}`
-          : parentMember.serNo.toString();
+      const parentCoupleKey = (parentMember.spouseSerNo != null && parentMember.serNo != null)
+          ? (() => {
+              const a = Number(parentMember.serNo);
+              const b = Number(parentMember.spouseSerNo);
+              return (!Number.isNaN(a) && !Number.isNaN(b)) ? `${Math.min(a, b)}-${Math.max(a, b)}` : `${toKey(parentMember.serNo)}-${toKey(parentMember.spouseSerNo)}`;
+            })()
+          : toKey(parentMember.serNo);
         setExpandedNodes(prev => {
           const newSet = new Set(prev);
           newSet.add(parentCoupleKey);
@@ -1004,9 +1022,9 @@ const EnhancedFamilyTree = () => {
             />
             {searchTerm && filteredMembers.length > 0 && (
               <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                {filteredMembers.map(member => (
+                {filteredMembers.map((member, idx) => (
                   <div
-                    key={member.serNo}
+                    key={String(member?.serNo ?? idx)}
                     className="px-4 py-2 hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-b-0"
                     onClick={() => handleSearchSelect(member)}
                   >

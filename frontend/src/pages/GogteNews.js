@@ -1,547 +1,265 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { Filter, Search, Calendar, Users, Star, RefreshCw, User, Clock, Heart, MessageCircle, X, Send } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import { AddNewsModal } from './AddNewsModal';
-import { NewsCard } from './NewsCard';
-import Footer from '../components/Footer';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { apiCreateNews, apiListNews } from '../utils/api';
+import { Calendar, Clock, Image as ImageIcon, Search, Upload, User } from 'lucide-react';
 
-export default function GogteNewsPage() {
-  const { t } = useTranslation();
-  
-  const [news, setNews] = useState([
-    {
-      id: 1,
-      title: "Gogte Kulamandal Annual Meeting 2024",
-      content: "Our kulamandal's annual meeting was successfully concluded. The participation of all family members made this event extremely joyful. Important decisions for the new year were discussed.",
-      author: "Narayan Shankar",
-      category: "announcement",
-      location: "Guhagar, Maharashtra",
-      eventDate: "2024-12-15",
-      tags: ["meeting", "annual", "family", "decisions"],
-      timestamp: "2 days ago",
-      likes: 24,
-      comments: 8,
-      imageUrl: "/Gogte_News.jpg"
-    },
-    {
-      id: 2,
-      title: "Youth Generation's Academic Success",
-      content: "Many young men and women from our family have achieved excellent academic performance this year. We are proud of their success in various fields.",
-      author: "Dr. Mohan Krishna",
-      category: "achievement",
-      location: "Various locations",
-      eventDate: "2024-12-01",
-      tags: ["education", "achievement", "youth", "success"],
-      timestamp: "1 week ago",
-      likes: 18,
-      comments: 12,
-      imageUrl: null
-    },
-    {
-      id: 3,
-      title: "Traditional Festival Celebration",
-      content: "On the occasion of Diwali, all members of our family came together and celebrated the festival in traditional style. We enjoyed worship, aarti and shared meals.",
-      author: "Smita Charuhas",
-      category: "celebration",
-      location: "Family homes across Maharashtra",
-      eventDate: "2024-11-12",
-      tags: ["diwali", "festival", "celebration", "tradition"],
-      timestamp: "2 weeks ago",
-      likes: 31,
-      comments: 15,
-      imageUrl: null
-    }
-  ]);
-
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedNews, setSelectedNews] = useState(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-
-  // Load news from localStorage on component mount
-  useEffect(() => {
-    const savedNews = localStorage.getItem('gogteNews');
-    if (savedNews) {
-      setNews(JSON.parse(savedNews));
-    }
-  }, []);
-
-  // Save news to localStorage whenever news state changes
-  useEffect(() => {
-    localStorage.setItem('gogteNews', JSON.stringify(news));
-  }, [news]);
-
-  const categories = [
-    { value: 'all', label: t('newsPage.allCategories') },
-    { value: 'announcement', label: t('newsPage.categories.announcement') },
-    { value: 'achievement', label: t('newsPage.categories.achievement') },
-    { value: 'celebration', label: t('newsPage.categories.celebration') },
-    { value: 'tradition', label: t('newsPage.categories.tradition') },
-    { value: 'milestone', label: t('newsPage.categories.milestone') },
-    { value: 'reunion', label: t('newsPage.categories.reunion') },
-    { value: 'memory', label: t('newsPage.categories.memory') },
-    { value: 'general', label: t('newsPage.categories.general') }
-  ];
-
-  const filteredNews = news.filter(item => {
-    const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
-    const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.content.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesCategory && matchesSearch;
+function NewsForm({ onCreated }) {
+  const [values, setValues] = useState({
+    title: '', content: '', category: 'general', location: '', eventDate: '', tags: ''
   });
+  const [images, setImages] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef();
 
-  const handleAddNews = (newNews) => {
-    const newsItem = {
-      id: Date.now(),
-      title: newNews.title,
-      content: newNews.content,
-      category: newNews.category,
-      imageUrl: newNews.imageUrl,
-      author: newNews.author || "Family Member",
-      location: newNews.location,
-      eventDate: newNews.eventDate,
-      tags: newNews.tags || [],
-      timestamp: "Just now",
-      likes: 0,
-      comments: 0
-    };
-    setNews([newsItem, ...news]);
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setValues(v => ({ ...v, [name]: value }));
   };
-
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    // Simulate refresh delay
-    setTimeout(() => {
-      setIsRefreshing(false);
-      // In a real app, you would fetch fresh data from the server here
-    }, 1000);
+  const onFiles = (files) => {
+    const arr = Array.from(files || []);
+    setImages(prev => [...prev, ...arr]);
   };
+  const removeImage = (idx) => setImages(prev => prev.filter((_, i) => i !== idx));
 
-  const handleNewsClick = (newsItem) => {
-    // Find the latest version of this news item from the state
-    const latestNewsItem = news.find(item => item.id === newsItem.id) || newsItem;
-    setSelectedNews(latestNewsItem);
-    setShowDetailModal(true);
-  };
-
-  const handleLike = (newsId) => {
-    setNews(prevNews => 
-      prevNews.map(item => 
-        item.id === newsId 
-          ? { 
-              ...item, 
-              likes: item.likes + 1,
-              likedBy: [...(item.likedBy || []), 'currentUser'] // Track who liked
-            }
-          : item
-      )
-    );
-    
-    // Also update selectedNews if it's the same item
-    if (selectedNews && selectedNews.id === newsId) {
-      setSelectedNews(prev => ({ 
-        ...prev, 
-        likes: prev.likes + 1,
-        likedBy: [...(prev.likedBy || []), 'currentUser']
-      }));
-    }
-  };
-
-  const handleAddComment = (newsId, comment) => {
-    const newComment = {
-      id: Date.now(),
-      text: comment,
-      author: "You",
-      timestamp: "Just now"
-    };
-
-    setNews(prevNews => 
-      prevNews.map(item => 
-        item.id === newsId 
-          ? { 
-              ...item, 
-              comments: item.comments + 1,
-              commentsList: [...(item.commentsList || []), newComment]
-            }
-          : item
-      )
-    );
-    
-    // Also update selectedNews if it's the same item
-    if (selectedNews && selectedNews.id === newsId) {
-      setSelectedNews(prev => ({ 
-        ...prev, 
-        comments: prev.comments + 1,
-        commentsList: [...(prev.commentsList || []), newComment]
-      }));
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      const fd = new FormData();
+      Object.entries(values).forEach(([k, v]) => {
+        if (v !== '' && v !== null && v !== undefined) fd.append(k, v);
+      });
+      if (values.tags) {
+        fd.set('tags', values.tags);
+      }
+      images.forEach((f) => fd.append('newsImages', f));
+      const res = await apiCreateNews(fd);
+      if (res?.success) {
+        setValues({ title: '', content: '', category: 'general', location: '', eventDate: '', tags: '' });
+        setImages([]);
+        onCreated?.(res.news);
+      } else {
+        const msg = (res && (res.message || res.error)) ? String(res.message || res.error) : 'Failed to create news';
+        alert(msg);
+      }
+    } catch (err) {
+      console.error('Create news failed', err);
+      const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Failed to create news';
+      alert(msg);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b border-orange-200">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-amber-800 mb-2">{t('newsPage.title')}</h1>
-              <p className="text-amber-700">{t('newsPage.subtitle')}</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link
-                to="/dashboard"
-                className="inline-flex items-center px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
-              >
-                {t('newsPage.backToDashboard')}
-              </Link>
-              <button
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="inline-flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+    <div className="bg-white rounded-2xl shadow-md border border-amber-200 overflow-hidden">
+      <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-4 text-white">
+        <h2 className="text-lg font-semibold">Share Family News</h2>
+      </div>
+      <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <label className="block text-sm text-gray-700 mb-1">Title</label>
+          <input name="title" value={values.title} onChange={handleChange} className="w-full rounded-lg border border-amber-200 px-3 py-2" required />
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-sm text-gray-700 mb-1">Story</label>
+          <textarea name="content" value={values.content} onChange={handleChange} rows={4} className="w-full rounded-lg border border-amber-200 px-3 py-2" required />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Category</label>
+          <select name="category" value={values.category} onChange={handleChange} className="w-full rounded-lg border border-amber-200 px-3 py-2">
+            {['general','celebration','achievement','announcement','tradition','milestone','reunion','memory'].map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Event Date</label>
+          <input type="date" name="eventDate" value={values.eventDate} onChange={handleChange} className="w-full rounded-lg border border-amber-200 px-3 py-2" />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Location</label>
+          <input name="location" value={values.location} onChange={handleChange} className="w-full rounded-lg border border-amber-200 px-3 py-2" />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Tags (comma separated)</label>
+          <input name="tags" value={values.tags} onChange={handleChange} className="w-full rounded-lg border border-amber-200 px-3 py-2" placeholder="wedding, celebration"/>
+        </div>
+
+        <div className="md:col-span-2 pt-1">
+          <label className="block text-sm text-gray-700 mb-2">Photos</label>
+          <div className="rounded-lg border-2 border-dashed border-amber-200 p-4 bg-amber-50">
+            <div className="flex items-center gap-3">
+              <button type="button" className="inline-flex items-center px-3 py-2 rounded-lg bg-white border border-amber-200 shadow text-amber-700" onClick={() => fileRef.current?.click()}>
+                <Upload size={16} className="mr-2"/> Upload images
               </button>
-              <AddNewsModal onAddNews={handleAddNews} />
+              <input multiple ref={fileRef} onChange={e => onFiles(e.target.files)} className="hidden" type="file" accept="image/*"/>
+              <span className="text-sm text-amber-700">PNG, JPG up to a few MB</span>
             </div>
+            {images.length>0 && (
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                {images.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img src={URL.createObjectURL(img)} alt="preview" className="h-28 w-full object-cover rounded-lg border"/>
+                    <button type="button" onClick={()=>removeImage(i)} className="absolute top-1 right-1 bg-white/80 text-red-600 rounded px-2 py-0.5 text-xs opacity-0 group-hover:opacity-100 transition">Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        </div>
+        <div className="md:col-span-2 flex justify-end">
+          <button disabled={submitting} className="px-6 py-2 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 shadow">
+            {submitting ? 'Saving...' : 'Publish News'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function GalleryModal({ images = [], onClose }) {
+  const [idx, setIdx] = useState(0);
+  if (!images || images.length === 0) return null;
+  const src = `data:${images[idx].mimeType};base64,${images[idx].data}`;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="relative max-w-4xl w-full" onClick={e=>e.stopPropagation()}>
+        <img src={src} alt="news" className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl"/>
+        {images.length>1 && (
+          <div className="flex justify-between mt-3">
+            <button className="px-3 py-1 bg-white/80 rounded hover:bg-white" onClick={()=> setIdx((idx-1+images.length)%images.length)}>Prev</button>
+            <button className="px-3 py-1 bg-white/80 rounded hover:bg-white" onClick={()=> setIdx((idx+1)%images.length)}>Next</button>
+          </div>
+        )}
+        <button className="absolute top-2 right-2 px-3 py-1 bg-white/80 rounded hover:bg-white" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+function NewsCard({ item, fallbackAuthor }) {
+  const cover = item.newsImages && item.newsImages[0] ? `data:${item.newsImages[0].mimeType};base64,${item.newsImages[0].data}` : null;
+  const [showGallery, setShowGallery] = useState(false);
+  const when = item.eventDate ? new Date(item.eventDate) : (item.createdAt ? new Date(item.createdAt) : null);
+  const rel = React.useMemo(() => {
+    if (!when) return '';
+    const diff = Date.now() - when.getTime();
+    const d = Math.floor(diff / (1000*60*60*24));
+    if (d <= 0) return 'today';
+    if (d === 1) return '1 day ago';
+    if (d < 7) return `${d} days ago`;
+    const w = Math.floor(d/7); return w === 1 ? '1 week ago' : `${w} weeks ago`;
+  }, [when]);
+  return (
+    <div className="bg-white rounded-2xl shadow-md border border-amber-200 overflow-hidden hover:shadow-lg transition">
+      {cover ? <img alt={item.title} src={cover} onClick={()=>setShowGallery(true)} className="w-full h-56 object-cover cursor-pointer hover:opacity-95"/> : (
+        <div className="w-full h-56 flex items-center justify-center bg-amber-50 text-amber-600"><ImageIcon/></div>
+      )}
+      <div className="p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 border border-amber-200">{item.category || 'general'}</span>
+        </div>
+        <h3 className="text-xl font-extrabold text-amber-900 mb-1 line-clamp-1">{item.title}</h3>
+        {item.content && <p className="text-amber-800 mb-2 line-clamp-2">{item.content}</p>}
+        <div className="flex items-center text-amber-700 text-sm mb-2">
+          <Calendar size={16} className="mr-2"/>{item.eventDate?.slice?.(0,10) || item.createdAt?.slice?.(0,10)}
+        </div>
+        <div className="mt-3 flex items-center gap-3 text-sm text-gray-900">
+          <User size={16} className="text-amber-600"/>
+          <span>{item.createdByName || fallbackAuthor || 'Member'}</span>
+          {rel && (<span className="inline-flex items-center gap-1"><Clock size={14}/>{rel}</span>)}
+        </div>
+      </div>
+      {showGallery && <GalleryModal images={item.newsImages || []} onClose={()=>setShowGallery(false)} />}
+    </div>
+  );
+}
+
+export default function GogteNewsPage() {
+  const [news, setNews] = useState([]);
+  const [authed, setAuthed] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('All');
+  const [authorDisplayName, setAuthorDisplayName] = useState('Member');
+
+  useEffect(() => {
+    const t = localStorage.getItem('authToken');
+    setAuthed(!!(t && t !== 'undefined' && t !== 'null'));
+    apiListNews().then(d => setNews(d.news || [])).catch(()=>{});
+  }, []);
+
+  useEffect(() => {
+    async function loadName() {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token || token==='undefined' || token==='null') return;
+        const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const data = await res.json();
+          const name = [data.firstName, data.middleName, data.lastName].filter(Boolean).join(' ').trim() || (data.name && !String(data.name).includes('@') ? String(data.name).trim() : 'Member');
+          if (name) setAuthorDisplayName(name);
+        }
+      } catch {}
+    }
+    loadName();
+  }, [authed]);
+
+  const filtered = useMemo(() => {
+    return news.filter(n => {
+      const q = search.trim().toLowerCase();
+      const matchesQ = !q || [n.title, n.content, n.location, n.category].filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+      const matchesCat = category==='All' || (n.category||'').toLowerCase()===category.toLowerCase();
+      return matchesQ && matchesCat;
+    });
+  }, [news, search, category]);
+
+  return (
+    <div className="px-4 py-8 max-w-6xl mx-auto space-y-8">
+      <div className="rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white p-6 shadow flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold">News</h1>
+          <p className="opacity-90 mt-1">Family stories, milestones, and announcements.</p>
+        </div>
+        {authed && (
+          <button onClick={()=>setShowForm(true)} className="self-start md:self-auto inline-flex items-center px-4 py-2 bg-white/90 text-amber-700 rounded-lg font-semibold shadow hover:bg-white">
+            + Add News
+          </button>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-amber-200 shadow p-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+        <div className="relative w-full md:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500" size={18}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search news..." className="w-full rounded-lg border border-amber-200 px-9 py-2"/>
+        </div>
+        <div>
+          <select value={category} onChange={e=>setCategory(e.target.value)} className="rounded-lg border border-amber-200 px-3 py-2">
+            {['All','general','celebration','achievement','announcement','tradition','milestone','reunion','memory'].map(o=> <option key={o}>{o}</option>)}
+          </select>
         </div>
       </div>
 
-      {/* Filters and Search */}
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-6 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            {/* Search */}
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-amber-500 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder={t('newsPage.searchNews')}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                />
-              </div>
+      {showForm && authed && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+          <div className="relative max-w-3xl w-full max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl ring-1 ring-amber-200">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-t-2xl shadow">
+              <div className="inline-flex items-center gap-2"><span className="font-semibold">Add News</span></div>
+              <button onClick={()=>setShowForm(false)} className="px-3 py-1 bg-white/20 rounded-lg hover:bg-white/30">Close</button>
             </div>
-
-            {/* Category Filter */}
-            <div className="lg:w-64">
-              <div className="relative">
-                <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-amber-500 w-5 h-5" />
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent appearance-none bg-white"
-                >
-                  {categories.map(category => (
-                    <option key={category.value} value={category.value}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="p-4">
+              <NewsForm onCreated={(it)=> { it.createdByName = it.createdByName || authorDisplayName; setNews(prev => [it, ...prev]); setShowForm(false); }}/>
             </div>
           </div>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-orange-200">
-            <div className="flex items-center">
-              <Calendar className="w-8 h-8 text-amber-500 mr-3" />
-              <div>
-                <p className="text-sm text-amber-700">एकूण बातम्या</p>
-                <p className="text-2xl font-bold text-amber-800">{news.length}</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-orange-200">
-            <div className="flex items-center">
-              <Users className="w-8 h-8 text-amber-500 mr-3" />
-              <div>
-                <p className="text-sm text-amber-700">सक्रिय लेखक</p>
-                <p className="text-2xl font-bold text-amber-800">{new Set(news.map(n => n.author)).size}</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-orange-200">
-            <div className="flex items-center">
-              <Star className="w-8 h-8 text-amber-500 mr-3" />
-              <div>
-                <p className="text-sm text-amber-700">एकूण लाइक्स</p>
-                <p className="text-2xl font-bold text-amber-800">{news.reduce((sum, n) => sum + n.likes, 0)}</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-orange-200">
-            <div className="flex items-center">
-              <Filter className="w-8 h-8 text-amber-500 mr-3" />
-              <div>
-                <p className="text-sm text-amber-700">श्रेण्या</p>
-                <p className="text-2xl font-bold text-amber-800">{categories.length - 1}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* News Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredNews.length > 0 ? (
-            filteredNews.map(newsItem => (
-              <div 
-                key={newsItem.id} 
-                onClick={() => handleNewsClick(newsItem)}
-                className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-300"
-              >
-                {/* Image */}
-                <div className="aspect-video bg-gradient-to-br from-amber-100 to-orange-200 relative">
-                  {newsItem.imageUrl ? (
-                    <img 
-                      src={newsItem.imageUrl} 
-                      alt={newsItem.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <div className="w-16 h-16 bg-amber-200 rounded-full flex items-center justify-center mx-auto mb-2">
-                          <span className="text-2xl">📰</span>
-                        </div>
-                        <p className="text-amber-600 font-medium">No Image</p>
-                      </div>
-                    </div>
-                  )}
-                  {/* Category Badge */}
-                  <div className="absolute top-3 left-3">
-                    <span className="bg-amber-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {categories.find(cat => cat.value === newsItem.category)?.label || newsItem.category}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Content */}
-                <div className="p-6">
-                  <h3 className="text-xl font-bold text-amber-800 mb-2 line-clamp-2">
-                    {newsItem.title}
-                  </h3>
-                  <p className="text-amber-700 mb-4 line-clamp-3">
-                    {newsItem.content}
-                  </p>
-                  
-                  {/* Meta Info */}
-                  <div className="flex items-center justify-between text-sm text-amber-600">
-                    <div className="flex items-center space-x-4">
-                      <span className="flex items-center">
-                        <User className="w-4 h-4 mr-1" />
-                        {newsItem.author}
-                      </span>
-                      <span className="flex items-center">
-                        <Clock className="w-4 h-4 mr-1" />
-                        {newsItem.timestamp}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <span className="flex items-center">
-                        <Heart className="w-4 h-4 mr-1" />
-                        {newsItem.likes}
-                      </span>
-                      <span className="flex items-center">
-                        <MessageCircle className="w-4 h-4 mr-1" />
-                        {newsItem.comments}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="col-span-2 bg-white rounded-xl shadow-sm border border-orange-200 p-12 text-center">
-              <div className="text-amber-500 mb-4">
-                <Search className="w-16 h-16 mx-auto" />
-              </div>
-              <h3 className="text-xl font-semibold text-amber-800 mb-2">कोणतीही बातम्या सापडल्या नाहीत</h3>
-              <p className="text-amber-700">आपल्या शोध निकषांनुसार कोणतीही बातम्या उपलब्ध नाहीत.</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* News Detail Modal */}
-      {showDetailModal && selectedNews && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-orange-200">
-              <h2 className="text-2xl font-bold text-amber-800">News Details</h2>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="p-2 hover:bg-amber-100 rounded-full transition-colors"
-              >
-                <X className="w-6 h-6 text-amber-600" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6">
-              {/* Image */}
-              <div className="aspect-video bg-gradient-to-br from-amber-100 to-orange-200 rounded-lg mb-6 relative overflow-hidden">
-                {selectedNews.imageUrl ? (
-                  <img 
-                    src={selectedNews.imageUrl} 
-                    alt={selectedNews.title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <div className="w-20 h-20 bg-amber-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <span className="text-4xl">📰</span>
-                      </div>
-                      <p className="text-amber-600 font-medium text-lg">No Image Available</p>
-                    </div>
-                  </div>
-                )}
-                {/* Category Badge */}
-                <div className="absolute top-4 left-4">
-                  <span className="bg-amber-500 text-white px-4 py-2 rounded-full text-sm font-medium">
-                    {categories.find(cat => cat.value === selectedNews.category)?.label || selectedNews.category}
-                  </span>
-                </div>
-              </div>
-
-              {/* Title and Meta */}
-              <div className="mb-6">
-                <h1 className="text-3xl font-bold text-amber-800 mb-4">{selectedNews.title}</h1>
-                
-                <div className="flex flex-wrap items-center gap-4 text-amber-600 mb-4">
-                  <span className="flex items-center">
-                    <User className="w-5 h-5 mr-2" />
-                    <strong>Author:</strong> {selectedNews.author}
-                  </span>
-                  <span className="flex items-center">
-                    <Clock className="w-5 h-5 mr-2" />
-                    <strong>Posted:</strong> {selectedNews.timestamp}
-                  </span>
-                  {selectedNews.location && (
-                    <span className="flex items-center">
-                      <span className="w-5 h-5 mr-2">📍</span>
-                      <strong>Location:</strong> {selectedNews.location}
-                    </span>
-                  )}
-                  {selectedNews.eventDate && (
-                    <span className="flex items-center">
-                      <Calendar className="w-5 h-5 mr-2" />
-                      <strong>Event Date:</strong> {new Date(selectedNews.eventDate).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-
-                {/* Tags */}
-                {selectedNews.tags && selectedNews.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {selectedNews.tags.map((tag, index) => (
-                      <span key={index} className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-sm">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Content */}
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-amber-800 mb-3">Story</h3>
-                <p className="text-amber-700 leading-relaxed text-lg">{selectedNews.content}</p>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-between border-t border-orange-200 pt-6">
-                <div className="flex items-center space-x-6">
-                  <button
-                    onClick={() => handleLike(selectedNews.id)}
-                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-                      selectedNews.likedBy && selectedNews.likedBy.includes('currentUser')
-                        ? 'bg-red-100 hover:bg-red-200 text-red-700'
-                        : 'bg-amber-100 hover:bg-amber-200 text-amber-700'
-                    }`}
-                  >
-                    <Heart className={`w-5 h-5 ${selectedNews.likedBy && selectedNews.likedBy.includes('currentUser') ? 'fill-current' : ''}`} />
-                    <span>{selectedNews.likes} Likes</span>
-                  </button>
-                  <span className="flex items-center space-x-2 text-amber-600">
-                    <MessageCircle className="w-5 h-5" />
-                    <span>{selectedNews.comments} Comments</span>
-                  </span>
-                </div>
-                
-                <button className="flex items-center space-x-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors">
-                  <span>Share</span>
-                </button>
-              </div>
-
-              {/* Comments Section */}
-              <div className="mt-6 border-t border-orange-200 pt-6">
-                <h3 className="text-xl font-semibold text-amber-800 mb-4">Comments</h3>
-                
-                {/* Add Comment */}
-                <div className="mb-6">
-                  <div className="flex space-x-3">
-                    <input
-                      type="text"
-                      placeholder="Write a comment..."
-                      className="flex-1 px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && e.target.value.trim()) {
-                          handleAddComment(selectedNews.id, e.target.value.trim());
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                    <button
-                      onClick={(e) => {
-                        const input = e.target.previousElementSibling;
-                        if (input.value.trim()) {
-                          handleAddComment(selectedNews.id, input.value.trim());
-                          input.value = '';
-                        }
-                      }}
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors flex items-center"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Comments List */}
-                <div className="space-y-4">
-                  {selectedNews.commentsList && selectedNews.commentsList.length > 0 ? (
-                    selectedNews.commentsList.map((comment) => (
-                      <div key={comment.id} className="bg-amber-50 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium text-amber-800">{comment.author}</span>
-                          <span className="text-sm text-amber-600">{comment.timestamp}</span>
-                        </div>
-                        <p className="text-amber-700">{comment.text}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-amber-600">
-                      <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                      <p>No comments yet. Be the first to comment!</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-      </div>
         </div>
       )}
 
-      <Footer />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {filtered.map(item => <div key={item._id || item.title} className="space-y-2">
+          <NewsCard item={item} fallbackAuthor={authorDisplayName} />
+          <div className="text-sm text-gray-900 bg-white/90 inline-flex items-center gap-2 px-3 py-1 rounded-full border border-amber-200 shadow-sm">
+            <User size={14} className="text-amber-600"/> <span>Added by <strong className="font-semibold">{item.createdByName || authorDisplayName || 'Member'}</strong></span>
+          </div>
+        </div>)}
+      </div>
     </div>
   );
 }

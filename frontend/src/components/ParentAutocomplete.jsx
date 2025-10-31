@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import axios from "axios";
+import api from "../utils/api";
 
 const ParentAutocomplete = ({
   label,
@@ -47,7 +47,7 @@ const ParentAutocomplete = ({
 
       try {
         setIsLoading(true);
-        const response = await axios.get("/api/family/search", {
+        const response = await api.get("/api/family/search", {
           params: { query, vansh },
         });
 

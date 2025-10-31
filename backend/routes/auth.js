@@ -142,9 +142,10 @@ export default function createAuthRouter(connectToMongo) {
 
   router.post('/login', async (req, res) => {
     try {
-      console.log('[auth] login attempt:', { email: req.body.email, hasPassword: !!req.body.password });
-      const sanitizedEmailInput = sanitizeEmailValue(req.body.email);
-      const inputPassword = String(req.body.password || '');
+      const rawLogin = req.body?.email || req.body?.username || req.body?.login || req.body?.userEmail || '';
+      console.log('[auth] login attempt:', { login: rawLogin, hasPassword: !!req.body.password });
+      const sanitizedEmailInput = sanitizeEmailValue(rawLogin);
+      const inputPassword = String(req.body.password || '').trim();
       if (!sanitizedEmailInput || !inputPassword) {
         console.log('[auth] login failed: missing email or password');
         return res.status(400).json({ message: 'Email and password are required' });
@@ -186,12 +187,56 @@ export default function createAuthRouter(connectToMongo) {
         });
       }
       const db = await connectToMongo();
-      const users = await getUsersCollection(db);
+      // 1) Prefer explicit login collection for username/email login
+      const loginCollName = (process.env.MONGODB_LOGIN_COLLECTION || 'login').trim();
+      let users = null;
+      if (loginCollName) {
+        try {
+          const collNames = (await db.listCollections({}, { nameOnly: true }).toArray()).map(x => x.name);
+          if (collNames.includes(loginCollName)) {
+            users = db.collection(loginCollName);
+          }
+        } catch (_) {}
+      }
+      // 2) Fallback: dynamic detection as before
+      if (!users) {
+        users = await getUsersCollection(db);
+      }
       const normalizedEmail = sanitizedEmailInput.toLowerCase();
       const emailRegex = new RegExp(`^${escapeRegex(normalizedEmail)}$`, 'i');
+      console.log('[auth] using collection:', users?.collectionName || 'unknown');
+
+      const candidateFields = [...emailFields, 'username', 'Username', 'login', 'Login'];
       let user = await users.findOne({
-        $or: emailFields.map(field => ({ [field]: emailRegex }))
+        $or: [
+          ...candidateFields.map(field => ({ [field]: emailRegex })),
+          ...candidateFields.map(field => ({ [field]: sanitizedEmailInput }))
+        ]
       });
+
+      // Fallback: use aggregation to match toLower across all candidate fields
+      if (!user) {
+        const candidates = candidateFields;
+        const pipeline = [
+          {
+            $addFields: {
+              __ids: candidates.map(f => ({ f, v: { $ifNull: [`$${f}`, ''] } }))
+            }
+          },
+          {
+            $match: {
+              __ids: {
+                $elemMatch: {
+                  v: { $type: 'string' },
+                  $expr: { $eq: [{ $toLower: '$$this.v' }, normalizedEmail] }
+                }
+              }
+            }
+          },
+          { $limit: 1 }
+        ];
+        user = await users.aggregate(pipeline).next();
+      }
       if (!user) {
         const pipeline = [
           {
@@ -280,15 +325,76 @@ export default function createAuthRouter(connectToMongo) {
         });
       }
       const db = await connectToMongo();
-      const users = await getUsersCollection(db);
-      const user = await users.findOne({ _id: new (await import('mongodb')).ObjectId(payload.sub) });
+
+      // Prefer resolving from permanent members collection to get full name
+      const membersCollName = (process.env.MONGODB_COLLECTION || 'members').trim() || 'members';
+      const members = db.collection(membersCollName);
+      const serNoToken = payload.serNo !== undefined && payload.serNo !== null ? payload.serNo : null;
+      const emailToken = (payload.email || '').toString().trim().toLowerCase();
+
+      let member = null;
+      if (serNoToken !== null) {
+        const sNum = Number(serNoToken);
+        const bySerNo = [
+          { serNo: sNum },
+          { serNo: String(serNoToken) },
+          { 'personalDetails.serNo': sNum },
+          { 'personalDetails.serNo': String(serNoToken) }
+        ];
+        member = await members.findOne({ $or: bySerNo });
+      }
+      if (!member && emailToken) {
+        const emailRegex = new RegExp(`^${escapeRegex(emailToken)}$`, 'i');
+        member = await members.findOne({
+          $or: [
+            { 'personalDetails.email': emailRegex },
+            { email: emailRegex },
+            { gmail: emailRegex },
+          ]
+        });
+      }
+
+      // Try to enrich name using login collection as well
+      const loginCollName = (process.env.MONGODB_LOGIN_COLLECTION || 'login').trim() || 'login';
+      const loginColl = db.collection(loginCollName);
+      const loginUser = emailToken ? await loginColl.findOne({ $or: [
+        { email: new RegExp(`^${escapeRegex(emailToken)}$`, 'i') },
+        { gmail: new RegExp(`^${escapeRegex(emailToken)}$`, 'i') },
+        { Email: new RegExp(`^${escapeRegex(emailToken)}$`, 'i') },
+        { userEmail: new RegExp(`^${escapeRegex(emailToken)}$`, 'i') }
+      ]}) : null;
+
+      // Fallback to original collection search if needed
+      let user = member;
+      if (!user) {
+        const users = await getUsersCollection(db);
+        try {
+          user = await users.findOne({ _id: new (await import('mongodb')).ObjectId(payload.sub) });
+        } catch (_) {
+          user = null;
+        }
+      }
       if (!user) return res.status(404).json({ message: 'User not found' });
+
       const resolvedEmailValue = findFieldValue(user, emailFields) || user.email || user.Email || '';
       const resolvedRole = user.role || user.Role || user.userRole || 'user';
       const serNo = user.serNo || user.SerNo || user.serno || null;
+      const personal = user.personalDetails || {};
+      const first = personal.firstName || user.firstName || user.FirstName || '';
+      const middle = personal.middleName || user.middleName || user.MiddleName || '';
+      const last = personal.lastName || user.lastName || user.LastName || '';
+      let displayName = [first, middle, last].filter(Boolean).join(' ').trim() || (user.name && String(user.name).trim()) || '';
+      if (!displayName && loginUser && (loginUser.username || loginUser.login || loginUser.Username || loginUser.Login)) {
+        const uname = loginUser.username || loginUser.login || loginUser.Username || loginUser.Login;
+        const base = String(uname).split('_')[0];
+        displayName = base || '';
+      }
       return res.json({
         id: String(user._id),
-        name: user.name || [user.firstName || user.FirstName || '', user.lastName || user.LastName || ''].filter(Boolean).join(' ').trim(),
+        name: displayName,
+        firstName: first,
+        middleName: middle,
+        lastName: last,
         email: String(resolvedEmailValue).toLowerCase(),
         role: resolvedRole,
         serNo: serNo

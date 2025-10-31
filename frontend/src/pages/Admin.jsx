@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, X, User, Calendar, Mail, Phone, MapPin, FileText, Shield, Bell, Search, Filter, Download, Clock, Users, AlertCircle, Star, Eye, MessageSquare, Archive, UserCheck, UserX } from 'lucide-react';
+import api from '../utils/api';
 
 const GogteKulAdmin = () => {
   const [activeTab, setActiveTab] = useState('pending');
@@ -10,121 +11,77 @@ const GogteKulAdmin = () => {
   const [approvalAction, setApprovalAction] = useState(null);
   const [selectedMembers, setSelectedMembers] = useState([]);
 
-  // Mock data for pending registrations
-  const pendingRegistrations = [
-    {
-      id: 1,
-      name: 'Rahul Gogte',
-      email: 'rahul.gogte@email.com',
-      phone: '+91 98765 43210',
-      birthDate: '1990-05-15',
-      address: 'Pune, Maharashtra',
-      relation: 'Grandson',
-      parentName: 'Sunil Gogte',
-      submissionDate: '2025-09-05',
-      documents: ['Aadhaar Card', 'Birth Certificate', 'Family Photo'],
-      status: 'pending',
-      priority: 'high',
-      verificationScore: 85,
-      familyTreePosition: 'Generation 3',
-      additionalNotes: 'Strong family resemblance, all documents verified'
-    },
-    {
-      id: 2,
-      name: 'Priya Gogte Sharma',
-      email: 'priya.sharma@email.com',
-      phone: '+91 87654 32109',
-      birthDate: '1985-12-20',
-      address: 'Mumbai, Maharashtra',
-      relation: 'Daughter-in-law',
-      parentName: 'Amit Gogte',
-      submissionDate: '2025-09-04',
-      documents: ['Marriage Certificate', 'Aadhaar Card', 'Wedding Photos'],
-      status: 'pending',
-      priority: 'medium',
-      verificationScore: 92,
-      familyTreePosition: 'Generation 2',
-      additionalNotes: 'Marriage certificate verified with family records'
-    },
-    {
-      id: 3,
-      name: 'Aditya Gogte',
-      email: 'aditya.gogte@email.com',
-      phone: '+91 76543 21098',
-      birthDate: '1995-08-10',
-      address: 'Nagpur, Maharashtra',
-      relation: 'Son',
-      parentName: 'Rajesh Gogte',
-      submissionDate: '2025-09-03',
-      documents: ['Aadhaar Card', 'Educational Certificate', 'Birth Certificate'],
-      status: 'under_review',
-      priority: 'low',
-      verificationScore: 78,
-      familyTreePosition: 'Generation 3',
-      additionalNotes: 'Additional verification required for family lineage'
-    },
-    {
-      id: 4,
-      name: 'Meera Gogte Patel',
-      email: 'meera.patel@email.com',
-      phone: '+91 65432 10987',
-      birthDate: '1988-03-25',
-      address: 'Ahmedabad, Gujarat',
-      relation: 'Niece',
-      parentName: 'Deepak Gogte',
-      submissionDate: '2025-09-02',
-      documents: ['Aadhaar Card', 'Marriage Certificate'],
-      status: 'pending',
-      priority: 'medium',
-      verificationScore: 88,
-      familyTreePosition: 'Generation 3',
-      additionalNotes: 'Recently relocated, documents authentic'
-    }
-  ];
+  const [pendingRegistrations, setPendingRegistrations] = useState([]);
+  const [approvedCount, setApprovedCount] = useState(0);
+  const [approvedMembersList, setApprovedMembersList] = useState([]);
+  const [rejectedRequests, setRejectedRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const approvedMembers = [
-    {
-      id: 5,
-      name: 'Sneha Gogte',
-      email: 'sneha.gogte@email.com',
-      relation: 'Daughter',
-      approvedDate: '2025-09-01',
-      status: 'approved',
-      approvedBy: 'Admin',
-      membershipType: 'Full Member'
-    },
-    {
-      id: 6,
-      name: 'Vikram Gogte',
-      email: 'vikram.gogte@email.com',
-      relation: 'Son',
-      approvedDate: '2025-08-28',
-      status: 'approved',
-      approvedBy: 'Admin',
-      membershipType: 'Full Member'
-    },
-    {
-      id: 7,
-      name: 'Kavita Gogte Shah',
-      email: 'kavita.shah@email.com',
-      relation: 'Daughter-in-law',
-      approvedDate: '2025-08-25',
-      status: 'approved',
-      approvedBy: 'Admin',
-      membershipType: 'Associate Member'
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        setLoading(true);
+        setError('');
+        const [pendingRes, membersRes] = await Promise.all([
+          api.get('/api/admin/registrations'),
+          api.get('/api/admin/family-members')
+        ]);
+        if (!mounted) return;
+        const regs = (pendingRes.data?.registrations || []).map(d => {
+          const first = d?.personalDetails?.firstName || d.firstName || '';
+          const middle = d?.personalDetails?.middleName || d.middleName || '';
+          const last = d?.personalDetails?.lastName || d.lastName || '';
+          const fullName = `${first} ${middle} ${last}`.trim().replace(/\s+/g, ' ');
+          const rawId = d && d._id;
+          const idStr = (rawId && typeof rawId === 'object' && ('$oid' in rawId))
+            ? rawId.$oid
+            : ((rawId !== undefined && rawId !== null) ? String(rawId) : '');
+          return {
+            ...d,
+            id: idStr,
+            name: fullName || d.name || 'New Registration',
+            email: d?.personalDetails?.email || d.email || '',
+            phone: d?.personalDetails?.mobileNumber || d.mobileNumber || '',
+            submissionDate: d.createdAt ? new Date(d.createdAt).toISOString().slice(0,10) : ''
+          };
+        });
+        // Ensure list-friendly defaults
+        const regsSafe = regs.map(r => ({
+          ...r,
+          documents: Array.isArray(r.documents) ? r.documents : [],
+          address: r.address || '',
+        }));
+        setPendingRegistrations(regsSafe);
+        const membersRaw = Array.isArray(membersRes.data) ? membersRes.data : [];
+        setApprovedCount(membersRaw.length);
+        const formattedMembers = membersRaw.map(d => {
+          const first = d?.personalDetails?.firstName || d.firstName || '';
+          const middle = d?.personalDetails?.middleName || d.middleName || '';
+          const last = d?.personalDetails?.lastName || d.lastName || '';
+          const fullName = `${first} ${middle} ${last}`.trim().replace(/\s+/g, ' ');
+          return {
+            id: d._id || d.serNo || fullName,
+            name: fullName || d.name || 'Member',
+            email: d?.personalDetails?.email || d.email || '',
+            relation: d.relation || '',
+            approvedDate: (d.approvedAt || d.updatedAt || d.createdAt) ? new Date(d.approvedAt || d.updatedAt || d.createdAt).toISOString().slice(0,10) : '',
+            approvedBy: 'Admin',
+            membershipType: 'Member'
+          };
+        });
+        setApprovedMembersList(formattedMembers);
+      } catch (e) {
+        if (!mounted) return;
+        setError(e.response?.data?.error || 'Failed to load admin data');
+      } finally {
+        if (mounted) setLoading(false);
+      }
     }
-  ];
-
-  const rejectedRequests = [
-    {
-      id: 8,
-      name: 'Unknown Applicant',
-      email: 'fake.email@example.com',
-      reason: 'Insufficient documentation and unable to verify family connection',
-      rejectedDate: '2025-08-20',
-      rejectedBy: 'Admin'
-    }
-  ];
+    load();
+    return () => { mounted = false; };
+  }, []);
 
   const handleApprove = (id, applicantData) => {
     setApprovalAction({ type: 'approve', id, data: applicantData });
@@ -136,14 +93,19 @@ const GogteKulAdmin = () => {
     setShowApprovalModal(true);
   };
 
-  const confirmAction = () => {
-    if (approvalAction?.type === 'approve') {
-      console.log('Approved:', approvalAction.id);
-    } else if (approvalAction?.type === 'reject') {
-      console.log('Rejected:', approvalAction.id);
+  const confirmAction = async () => {
+    try {
+      if (approvalAction?.type === 'approve') {
+        await api.post(`/api/admin/registrations/${approvalAction.id}/approve`);
+        setPendingRegistrations(prev => prev.filter(r => (r._id !== approvalAction.id && r.id !== approvalAction.id)));
+        setApprovedCount(c => c + 1);
+      }
+    } catch (e) {
+      setError(e.response?.data?.error || 'Action failed');
+    } finally {
+      setShowApprovalModal(false);
+      setApprovalAction(null);
     }
-    setShowApprovalModal(false);
-    setApprovalAction(null);
   };
 
   const toggleMemberSelection = (id) => {
@@ -209,7 +171,7 @@ const GogteKulAdmin = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm font-medium">Pending Requests</p>
-                <p className="text-3xl font-bold text-orange-600 mt-1">4</p>
+                <p className="text-3xl font-bold text-orange-600 mt-1">{pendingRegistrations.length}</p>
                 <p className="text-xs text-orange-500 mt-1">+2 this week</p>
               </div>
               <Clock className="w-12 h-12 text-orange-500" />
@@ -220,7 +182,7 @@ const GogteKulAdmin = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm font-medium">Approved Members</p>
-                <p className="text-3xl font-bold text-green-600 mt-1">3</p>
+                <p className="text-3xl font-bold text-green-600 mt-1">{approvedCount}</p>
                 <p className="text-xs text-green-500 mt-1">+1 this week</p>
               </div>
               <UserCheck className="w-12 h-12 text-green-500" />
@@ -231,7 +193,7 @@ const GogteKulAdmin = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm font-medium">Under Review</p>
-                <p className="text-3xl font-bold text-red-600 mt-1">1</p>
+                <p className="text-3xl font-bold text-red-600 mt-1">{pendingRegistrations.length}</p>
                 <p className="text-xs text-red-500 mt-1">Action needed</p>
               </div>
               <AlertCircle className="w-12 h-12 text-red-500" />
@@ -242,7 +204,7 @@ const GogteKulAdmin = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm font-medium">Total Family</p>
-                <p className="text-3xl font-bold text-blue-600 mt-1">156</p>
+                <p className="text-3xl font-bold text-blue-600 mt-1">{approvedCount}</p>
                 <p className="text-xs text-blue-500 mt-1">Active members</p>
               </div>
               <Users className="w-12 h-12 text-blue-500" />
@@ -472,7 +434,7 @@ const GogteKulAdmin = () => {
 
             {activeTab === 'approved' && (
               <div className="space-y-4">
-                {approvedMembers.map((member) => (
+                {approvedMembersList.map((member) => (
                   <div
                     key={member.id}
                     className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 border-l-4 border-green-500 hover:shadow-lg transition-all duration-300"
@@ -643,7 +605,7 @@ const GogteKulAdmin = () => {
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-3">Submitted Documents</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {selectedRequest.documents.map((doc, index) => (
+                  {(selectedRequest?.documents || []).map((doc, index) => (
                     <div key={index} className="flex items-center gap-3 p-4 bg-gradient-to-r from-orange-50 to-red-50 rounded-xl border border-orange-200">
                       <FileText className="w-5 h-5 text-orange-500" />
                       <span className="flex-1 font-medium">{doc}</span>

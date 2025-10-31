@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PhotoScroller from '../components/PhotoScroller';
 import Footer from '../components/Footer';
 import Profile from './Profile';
+import { apiListEvents, apiListNews } from '../utils/api';
 import {
   Users,
   Newspaper,
@@ -36,16 +37,28 @@ const Card = ({ children, className = '' }) => (
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  // User state for MongoDB user
-  const [user, setUser] = useState({ firstName: 'Guest' });
+  // User state for display purposes
+  const [displayName, setDisplayName] = useState('User');
 
   useEffect(() => {
-    function getFirstNameFromStorage() {
+    function getNameFromStorage() {
       try {
         const raw = localStorage.getItem('currentUser');
         if (!raw) return '';
         const u = JSON.parse(raw);
-        return u?.firstName || (u?.name ? String(u.name).split(' ')[0] : '') || '';
+        // Prefer nested personalDetails
+        const pd = u?.personalDetails || {};
+        const namePD = [pd.firstName, pd.middleName, pd.lastName].filter(Boolean).join(' ').trim();
+        if (namePD) return namePD;
+        const name = [u?.firstName, u?.middleName, u?.lastName].filter(Boolean).join(' ').trim();
+        if (name) return name;
+        if (u?.name) {
+          const n = String(u.name).trim();
+          if (!n.includes('@')) return n;
+        }
+        if (u?.username) return String(u.username).trim();
+        // Avoid falling back to email for display
+        return '';
       } catch (_) {
         return '';
       }
@@ -54,8 +67,8 @@ const Dashboard = () => {
     async function fetchUser() {
       const token = localStorage.getItem('authToken');
       if (!token || token === 'undefined' || token === 'null') {
-        const first = getFirstNameFromStorage();
-        setUser({ firstName: first || 'Guest' });
+        const nm = getNameFromStorage();
+        setDisplayName(nm || 'User');
         return;
       }
       try {
@@ -64,15 +77,16 @@ const Dashboard = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          const first = data.firstName || (data.name ? String(data.name).split(' ')[0] : '') || getFirstNameFromStorage();
-          setUser({ firstName: first || 'User' });
+          const fromApi = [data.firstName, data.middleName, data.lastName].filter(Boolean).join(' ').trim() || (data.name && !String(data.name).includes('@') ? String(data.name).trim() : '');
+          const name = fromApi || getNameFromStorage();
+          setDisplayName(name || 'User');
         } else {
-          const first = getFirstNameFromStorage();
-          setUser({ firstName: first || 'Guest' });
+          const nm = getNameFromStorage();
+          setDisplayName(nm || 'User');
         }
       } catch (e) {
-        const first = getFirstNameFromStorage();
-        setUser({ firstName: first || 'Guest' });
+        const nm = getNameFromStorage();
+        setDisplayName(nm || 'User');
       }
     }
     fetchUser();
@@ -81,24 +95,88 @@ const Dashboard = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const quickStats = [
-    { title: 'Family Members', value: '156', icon: Users, tint: 'bg-orange-100 text-orange-600', chip: '+12 this month' },
-    { title: 'Recent News', value: '8', icon: Newspaper, tint: 'bg-emerald-100 text-emerald-600', chip: '3 new this week' },
-    { title: 'Upcoming Events', value: '5', icon: Calendar, tint: 'bg-violet-100 text-violet-600', chip: '2 this month' },
-    { title: 'New Photos/albums', value: '10', icon: TrendingUp, tint: 'bg-amber-100 text-amber-700', chip: '+5 this week' },
-  ];
+  // Live data states
+  const [membersCount, setMembersCount] = useState(0);
+  const [membersSample, setMembersSample] = useState([]);
+  const [newsItems, setNewsItems] = useState([]);
+  const [eventItems, setEventItems] = useState([]);
 
-  const recentNews = [
-    { id: 1, title: 'Annual Family Reunion 2024 Announced', summary: 'Join us for our biggest family gathering of the year...', author: 'Rajesh Gogte', date: '2 days ago', likes: 24, comments: 8 },
-    { id: 2, title: 'New Baby Born in the Family', summary: 'Congratulations to Priya and Amit on their new arrival...', author: 'Sunita Gogte', date: '5 days ago', likes: 45, comments: 12 },
-    { id: 3, title: 'Family Business Milestone Achievement', summary: 'Our family business has reached a significant milestone...', author: 'Mohan Gogte', date: '1 week ago', likes: 32, comments: 6 },
-  ];
+  useEffect(() => {
+    // Load news and events from backend
+    apiListNews().then(d => setNewsItems(Array.isArray(d.news) ? d.news : [] )).catch(() => {});
+    apiListEvents().then(d => setEventItems(Array.isArray(d.events) ? d.events : [] )).catch(() => {});
+    // Load members count (public endpoint returns all members)
+    fetch('/api/family/members-new')
+      .then(r => r.ok ? r.json() : [])
+      .then(arr => {
+        const list = Array.isArray(arr) ? arr : (Array.isArray(arr.members) ? arr.members : []);
+        setMembersCount(list.length || 0);
+        // Build a tiny sample of display names
+        const sample = list.slice(0,5).map(m => {
+          const p = m.personalDetails || {};
+          const name = [p.firstName || m.firstName || m.FirstName, p.middleName || m.middleName || m.MiddleName, p.lastName || m.lastName || m.LastName].filter(Boolean).join(' ').trim();
+          return name || (m.name && !String(m.name).includes('@') ? String(m.name) : 'Member');
+        });
+        setMembersSample(sample);
+      })
+      .catch(() => {});
+  }, []);
 
-  const upcomingEvents = [
-    { id: 1, title: 'Diwali Celebration', date: 'Nov 12, 2024', time: '6:00 PM', location: 'Community Hall', attendees: 45 },
-    { id: 2, title: 'Monthly Family Meeting', date: 'Nov 20, 2024', time: '10:00 AM', location: 'Gogte Residence', attendees: 12 },
-    { id: 3, title: "Children's Birthday Party", date: 'Nov 25, 2024', time: '4:00 PM', location: 'Garden Area', attendees: 28 },
-  ];
+  const quickStats = useMemo(() => {
+    // Simple derived values for dashboard tiles
+    const today = new Date();
+    const upcomingCount = eventItems.filter(ev => {
+      const d = ev.fromDate || ev.eventDate || ev.createdAt;
+      if (!d) return false;
+      const dt = new Date(d);
+      return !isNaN(dt) && dt >= today;
+    }).length;
+    return [
+      { title: 'Family Members', value: String(membersCount || 0), icon: Users, tint: 'bg-orange-100 text-orange-600', chip: '' },
+      { title: 'Recent News', value: String(newsItems.length || 0), icon: Newspaper, tint: 'bg-emerald-100 text-emerald-600', chip: '' },
+      { title: 'Upcoming Events', value: String(upcomingCount || eventItems.length || 0), icon: Calendar, tint: 'bg-violet-100 text-violet-600', chip: '' },
+      { title: 'New Photos/albums', value: '—', icon: TrendingUp, tint: 'bg-amber-100 text-amber-700', chip: '' },
+    ];
+  }, [membersCount, newsItems, eventItems]);
+
+  // Derive lists for cards
+  const recentNews = useMemo(() => {
+    const rel = (d) => {
+      if (!d) return '';
+      const dt = new Date(d);
+      if (isNaN(dt)) return '';
+      const diff = Date.now() - dt.getTime();
+      const days = Math.floor(diff/86400000);
+      if (days <= 0) return 'today'; if (days===1) return '1 day ago'; if (days<7) return `${days} days ago`; const w=Math.floor(days/7); return w===1?'1 week ago':`${w} weeks ago`;
+    };
+    return (newsItems || []).slice(0,3).map(n => ({
+      id: n._id || n.id || n.title,
+      title: n.title || 'News',
+      summary: (n.content || '').slice(0,120) + ((n.content||'').length>120?'…':''),
+      author: n.createdByName || 'Member',
+      date: rel(n.eventDate || n.createdAt),
+      likes: n.likes || 0,
+      comments: n.comments || 0,
+    }));
+  }, [newsItems]);
+
+  const upcomingEvents = useMemo(() => {
+    const fmtDate = (d) => {
+      if (!d) return '';
+      try { return new Date(d).toDateString(); } catch { return String(d); }
+    };
+    return (eventItems || [])
+      .sort((a,b)=> new Date(a.fromDate||a.createdAt||0)-new Date(b.fromDate||b.createdAt||0))
+      .slice(0,3)
+      .map(e => ({
+        id: e._id || e.title,
+        title: e.title || 'Event',
+        date: fmtDate(e.fromDate || e.createdAt),
+        time: e.fromTime || '',
+        location: [e.venue, e.city].filter(Boolean).join(', '),
+        attendees: e.attendees || e.expectedAttendees || 0,
+      }));
+  }, [eventItems]);
 
   return (
   <div className="space-y-8 xs:space-y-12" style={{ fontFamily: 'Montserrat, sans-serif' }}>
@@ -108,10 +186,10 @@ const Dashboard = () => {
         <div className="relative bg-gradient-to-r from-amber-500/95 to-orange-400/95 sm:to-amber-600/90 rounded-2xl p-6 xs:p-8 sm:p-12 text-white flex flex-col sm:flex-row items-center justify-between gap-6">
           <div>
             <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold mb-3 tracking-wide">
-              <Sparkles size={16} className="mr-2" /> Welcome back, {user?.firstName || 'User'}!
+              <Sparkles size={16} className="mr-2" /> Welcome back, {displayName}!
             </div>
             <h1 className="text-3xl xs:text-4xl sm:text-5xl font-extrabold tracking-tight drop-shadow-lg">
-              {user?.firstName ? `Hi, ${user.firstName}!` : 'Welcome!'}
+              {displayName ? `Hi, ${displayName}!` : 'Welcome!'}
             </h1>
             <p className="text-amber-50/90 text-lg xs:text-xl sm:text-2xl mt-2 font-medium">
               This is your personalized family dashboard. Explore news, events, and more tailored for you.
@@ -182,21 +260,15 @@ const Dashboard = () => {
           </div>
           <div className="p-4 overflow-y-auto max-h-[260px]">
             <ul className="space-y-3">
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Rahul (Son)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Priya (Daughter)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Anita (Spouse)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Shyam (Father)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Sita (Mother)
-              </li>
+              {membersSample.length > 0 ? (
+                membersSample.map((name, idx) => (
+                  <li key={idx} className="flex items-center gap-3">
+                    <User className="text-orange-500" size={20} /> {name}
+                  </li>
+                ))
+              ) : (
+                <li className="text-amber-700 text-sm">Loading members…</li>
+              )}
             </ul>
           </div>
         </Card>
